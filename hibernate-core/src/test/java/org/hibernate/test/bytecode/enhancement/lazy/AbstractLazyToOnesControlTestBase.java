@@ -44,7 +44,7 @@ import static org.junit.Assert.*;
 
 @TestForIssue( jiraKey = "HHH-14500" )
 @RunWith(BytecodeEnhancerRunner.class)
-public class LazyToOnesControlTest extends BaseNonConfigCoreFunctionalTestCase {
+public abstract class AbstractLazyToOnesControlTestBase extends BaseNonConfigCoreFunctionalTestCase {
 
 	private static final ArrayList<Field> TEST_FIELDS = new ArrayList<>(
 			Arrays.stream(TestEntity.class.getDeclaredFields())
@@ -52,10 +52,16 @@ public class LazyToOnesControlTest extends BaseNonConfigCoreFunctionalTestCase {
 					.sorted(Comparator.comparing(Field::getName))
 					.collect(Collectors.toList()));
 
+	private final boolean allowEnhancementAsProxy;
+
+	protected AbstractLazyToOnesControlTestBase(final boolean allowEnhancementAsProxy) {
+		this.allowEnhancementAsProxy = allowEnhancementAsProxy;
+	}
+
 	@Override
 	protected void configureStandardServiceRegistryBuilder(StandardServiceRegistryBuilder ssrb) {
 		super.configureStandardServiceRegistryBuilder( ssrb );
-		ssrb.applySetting( AvailableSettings.ALLOW_ENHANCEMENT_AS_PROXY, "false" );
+		ssrb.applySetting( AvailableSettings.ALLOW_ENHANCEMENT_AS_PROXY, String.valueOf(allowEnhancementAsProxy));
 	}
 
 	@Override
@@ -269,6 +275,9 @@ public class LazyToOnesControlTest extends BaseNonConfigCoreFunctionalTestCase {
 			if (allDataAvailableInSingleRow) {
 				// We expect everything to be there already
 				assertEquals( "Only a single SQL statement is executed", 1, stats.getPrepareStatementCount());
+
+				// FIXME How to check that it is indeed a simple non-join statement that eagely loads everything even when it should not?
+				// We see this case in testBare() when proxy enhancement is allowed, for example.
 			} else {
 				// We allow a base query + at most one extra to load the rest of the data
 				assertTrue( "Up to two SQL statements are executed", stats.getPrepareStatementCount() <= 2);
@@ -282,12 +291,14 @@ public class LazyToOnesControlTest extends BaseNonConfigCoreFunctionalTestCase {
 			assertEquals( 0, stats.getPrepareStatementCount());
 			stats.clear();
 
-			for (final Field field: TEST_FIELDS) {
-				if (field.getName().contains("Lazy") && field.getName().contains("NoProxy")) {
-					assertFalse(
-							"Lazy fields without a proxy should not be initialized yet",
-							Hibernate.isPropertyInitialized(testEntity[0], field.getName())
-					);
+			if (!allowEnhancementAsProxy) { // All fields may be initialized if we have enhanced proxies
+				for (final Field field : TEST_FIELDS) {
+					if (field.getName().contains("Lazy") && field.getName().contains("NoProxy")) {
+						assertFalse(
+								"Lazy fields without a proxy should not be initialized yet",
+								Hibernate.isPropertyInitialized(testEntity[0], field.getName())
+						);
+					}
 				}
 			}
 
@@ -503,46 +514,28 @@ public class LazyToOnesControlTest extends BaseNonConfigCoreFunctionalTestCase {
 		// private TestEntity linkNoProxyJoin;
 
 		@ManyToOne(fetch = FetchType.LAZY)
-		@JoinColumn(name = "linkLazy_id", nullable = true)
-		@OptimisticLock(excluded = false)
-		@NotFound(action = NotFoundAction.IGNORE)
 		private TestEntity linkLazy;
 
 		@ManyToOne(fetch = FetchType.LAZY)
 		@Fetch(FetchMode.SELECT)
-		@JoinColumn(name = "linkLazySelect_id", nullable = true)
-		@OptimisticLock(excluded = false)
-		@NotFound(action = NotFoundAction.IGNORE)
 		private TestEntity linkLazySelect;
 
 		@ManyToOne(fetch = FetchType.LAZY)
 		@Fetch(FetchMode.JOIN)
-		@JoinColumn(name = "linkLazyJoin_id", nullable = true)
-		@OptimisticLock(excluded = false)
-		@NotFound(action = NotFoundAction.IGNORE)
 		private TestEntity linkLazyJoin;
 
 		@ManyToOne(fetch = FetchType.LAZY)
 		@LazyToOne(LazyToOneOption.NO_PROXY)
-		@JoinColumn(name = "linkLazyNoProxy_id", nullable = true)
-		@OptimisticLock(excluded = false)
-		@NotFound(action = NotFoundAction.IGNORE)
 		private TestEntity linkLazyNoProxy;
 
 		@ManyToOne(fetch = FetchType.LAZY)
 		@LazyToOne(LazyToOneOption.NO_PROXY)
 		@Fetch(FetchMode.SELECT)
-		@JoinColumn(name = "linkLazyNoProxySelect_id", nullable = true)
-		@OptimisticLock(excluded = false)
-		@NotFound(action = NotFoundAction.IGNORE)
 		private TestEntity linkLazyNoProxySelect;
 
 		@ManyToOne(fetch = FetchType.LAZY)
 		@LazyToOne(LazyToOneOption.NO_PROXY)
 		@Fetch(FetchMode.JOIN)
-		@JoinColumn(name = "linkLazyNoProxyJoin_id", nullable = true)
-		@OptimisticLock(excluded = false)
-		@NotFound(action = NotFoundAction.IGNORE)
 		private TestEntity linkLazyNoProxyJoin;
 
 		// Test and results data
